@@ -14,10 +14,6 @@ import (
 var db *bolt.DB
 var bucketName = []byte("MyBucket")
 
-func genID(now time.Time, job string) []byte {
-	return []byte(now.Format("2006-01-02 03-04-05 ") + job)
-}
-
 func initDB(dbfile string) (err error) {
 	db, err = bolt.Open(dbfile, 0666, nil)
 	if err != nil {
@@ -40,7 +36,7 @@ func initDB(dbfile string) (err error) {
 func handlerJob(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
-		job.Update(db, w, r)
+		job.Update(db, bucketName, w, r)
 	case http.MethodGet:
 		fmt.Println("Get Method")
 		err := db.View(func(tx *bolt.Tx) error {

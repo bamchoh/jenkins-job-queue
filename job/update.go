@@ -56,7 +56,11 @@ func deleteKey(bucket *bolt.Bucket, jobName string) error {
 	})
 }
 
-func Update(db *bolt.DB, w http.ResponseWriter, r *http.Request) {
+func genID(now time.Time, job string) []byte {
+	return []byte(now.Format("2006-01-02 03-04-05 ") + job)
+}
+
+func Update(db *bolt.DB, rootName []byte, w http.ResponseWriter, r *http.Request) {
 	var jsonData Job
 	err := decodeJSONFromRequest(r, &jsonData)
 	if err != nil {
@@ -65,7 +69,7 @@ func Update(db *bolt.DB, w http.ResponseWriter, r *http.Request) {
 	}
 
 	err = db.Update(func(tx *bolt.Tx) error {
-		bucket, err := tx.CreateBucketIfNotExists(bucketName)
+		bucket, err := tx.CreateBucketIfNotExists(rootName)
 		if err != nil {
 			return fmt.Errorf("create bucket: %s", err)
 		}

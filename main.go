@@ -33,6 +33,7 @@ func initDB(dbfile string) (err error) {
 }
 
 var dbname = flag.String("db", "", "database filename")
+var addr = flag.String("addr", ":20000", "server address")
 
 func init() {
 	flag.Parse()
@@ -52,5 +53,5 @@ func main() {
 
 	fmt.Println("server start")
 	http.HandleFunc("/job", handler)
-	http.ListenAndServe(":20000", nil)
+	http.ListenAndServe(*addr, nil)
 }

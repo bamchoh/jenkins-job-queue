@@ -10,23 +10,26 @@ import (
 	"test_httpserver/job"
 )
 
-func initDB(dbfile string, rootName []byte) (db *bolt.DB, err error) {
+var db *bolt.DB
+var rootName []byte
+
+func initDB(dbfile string) (err error) {
 	db, err = bolt.Open(dbfile, 0666, nil)
 	if err != nil {
 		err = fmt.Errorf("open DB error: %s", err)
 		fmt.Println(err)
-		return nil, err
+		return err
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(rootName)
 		if err != nil {
 			err = fmt.Errorf("create bucket: %s", err)
 			fmt.Println(err)
-			return nil, err
+			return err
 		}
-		return nil, err
+		return err
 	})
-	return db, err
+	return err
 }
 
 func main() {
@@ -36,10 +39,10 @@ func main() {
 
 	flag.Parse()
 
-	rootName := []byte(*bucket)
+	rootName = []byte(*bucket)
 
 	var err error
-	db, err = initDB(*dbname, rootName)
+	err = initDB(*dbname)
 	if err != nil {
 		err = fmt.Errorf("initDB error: %s", err)
 		fmt.Println(err)

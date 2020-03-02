@@ -10,38 +10,36 @@ import (
 	"test_httpserver/job"
 )
 
-var db *bolt.DB
-var bucketName = []byte("MyBucket")
-
-func initDB(dbfile string) (err error) {
+func initDB(dbfile string, rootName []byte) (db *bolt.DB, err error) {
 	db, err = bolt.Open(dbfile, 0666, nil)
 	if err != nil {
 		err = fmt.Errorf("open DB error: %s", err)
 		fmt.Println(err)
-		return err
+		return nil, err
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(bucketName)
+		_, err := tx.CreateBucketIfNotExists(rootName)
 		if err != nil {
 			err = fmt.Errorf("create bucket: %s", err)
 			fmt.Println(err)
-			return err
+			return nil, err
 		}
-		return err
+		return nil, err
 	})
-	return err
-}
-
-var dbname = flag.String("db", "", "database filename")
-var addr = flag.String("addr", ":20000", "server address")
-
-func init() {
-	flag.Parse()
+	return db, err
 }
 
 func main() {
+	dbname := flag.String("db", "", "database filename")
+	addr := flag.String("addr", ":20000", "server address")
+	bucket := flag.String("bucket", "MyBucket", "root bucket name")
+
+	flag.Parse()
+
+	rootName := []byte(*bucket)
+
 	var err error
-	err = initDB(*dbname)
+	db, err = initDB(*dbname, rootName)
 	if err != nil {
 		err = fmt.Errorf("initDB error: %s", err)
 		fmt.Println(err)
@@ -49,7 +47,7 @@ func main() {
 	}
 	defer db.Close()
 
-	go job.Execute(db, bucketName)
+	go job.Execute(db, rootName)
 
 	fmt.Println("server start")
 	http.HandleFunc("/job", handler)

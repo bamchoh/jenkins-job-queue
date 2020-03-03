@@ -18,12 +18,6 @@ type Job struct {
 	User       string `json:"user"`
 }
 
-func printError(w http.ResponseWriter, format string, err error) {
-	err = fmt.Errorf(format, err)
-	fmt.Println(err)
-	w.WriteHeader(http.StatusInternalServerError)
-}
-
 func decodeJSONFromRequest(r *http.Request, jsonData *Job) (err error) {
 	length, err := strconv.Atoi(r.Header.Get("Content-Length"))
 	if err != nil {
@@ -60,15 +54,15 @@ func genID(now time.Time, job string) []byte {
 	return []byte(now.Format("2006-01-02 03-04-05 ") + job)
 }
 
-func Update(db *bolt.DB, rootName []byte, w http.ResponseWriter, r *http.Request) {
+func Update(db *bolt.DB, rootName []byte, w http.ResponseWriter, r *http.Request) error {
 	var jsonData Job
 	err := decodeJSONFromRequest(r, &jsonData)
 	if err != nil {
-		printError(w, "Decode Json Error: %s", err)
-		return
+		w.WriteHeader(http.StatusInternalServerError)
+		return fmt.Errorf("Decode Json Error: %s", err)
 	}
 
-	err = db.Update(func(tx *bolt.Tx) error {
+	return db.Update(func(tx *bolt.Tx) error {
 		bucket, err := tx.CreateBucketIfNotExists(rootName)
 		if err != nil {
 			return fmt.Errorf("create bucket: %s", err)
@@ -103,7 +97,4 @@ func Update(db *bolt.DB, rootName []byte, w http.ResponseWriter, r *http.Request
 		}
 		return nil
 	})
-	if err != nil {
-		printError(w, "DB Update Error: %s", err)
-	}
 }

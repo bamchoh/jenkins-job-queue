@@ -3,10 +3,14 @@ package main
 import (
 	"flag"
 	"fmt"
-	"net/http"
+	"log"
+
+	"github.com/labstack/echo"
+	"github.com/labstack/echo/middleware"
 
 	bolt "go.etcd.io/bbolt"
 
+	"test_httpserver/handler"
 	"test_httpserver/job"
 )
 
@@ -44,15 +48,22 @@ func main() {
 	var err error
 	err = initDB(*dbname)
 	if err != nil {
-		err = fmt.Errorf("initDB error: %s", err)
-		fmt.Println(err)
-		return
+		log.Fatalf("initDB error: %s", err)
 	}
 	defer db.Close()
 
+	jh := handler.JobHandler{
+		Db:       db,
+		RootName: rootName,
+	}
+
 	go job.Execute(db, rootName)
 
-	fmt.Println("server start")
-	http.HandleFunc("/job", handler)
-	http.ListenAndServe(*addr, nil)
+	e := echo.New()
+	e.Use(middleware.Logger())
+	e.Use(middleware.Recover())
+	e.GET("/", jh.MainPage())
+	e.GET("/ws", jh.WebSocket())
+	e.POST("/job", jh.Update())
+	e.Logger.Fatal(e.Start(*addr))
 }

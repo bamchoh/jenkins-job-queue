@@ -1,4 +1,4 @@
-package job
+package handler
 
 import (
 	"encoding/json"
@@ -11,13 +11,13 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-func Execute(db *bolt.DB, rootName []byte) {
+func (jh *JobHandler) Execute() {
 	for {
 		user := ""
 		buildURL := ""
 		observeURL := ""
-		err := db.Update(func(tx *bolt.Tx) error {
-			bucket := tx.Bucket(rootName)
+		err := jh.Db.Update(func(tx *bolt.Tx) error {
+			bucket := tx.Bucket(jh.RootName)
 			if bucket != nil {
 				cursor := bucket.Cursor()
 				k, _ := cursor.First()
@@ -36,13 +36,21 @@ func Execute(db *bolt.DB, rootName []byte) {
 		})
 		if err != nil {
 			fmt.Println("execJob Error:", err)
-			time.Sleep(5 * time.Second)
+			<-jh.UpdateCh
 			continue
 		}
 
 		if user == "" || buildURL == "" || observeURL == "" {
-			time.Sleep(5 * time.Second)
+			<-jh.UpdateCh
 			continue
+		}
+
+		fmt.Println("Execute")
+		select {
+		case jh.Ch <- 1:
+			fmt.Println("jh.Ch")
+		default:
+			fmt.Println("default")
 		}
 
 		cmd := exec.Command("curl", "--user", user, buildURL)
@@ -53,7 +61,7 @@ func Execute(db *bolt.DB, rootName []byte) {
 		}
 		fmt.Println("end - cmd")
 
-		err = waitJobComplete(user, observeURL)
+		err = WaitJobComplete(user, observeURL)
 		if err != nil {
 			fmt.Println("wait job complete error: ", err)
 		}
@@ -70,7 +78,7 @@ type WaitJson struct {
 	LastCompletedBuild BuildNumber `json:"lastCompletedBuild"`
 }
 
-func waitJobComplete(token, obtainURL string) error {
+func WaitJobComplete(token, obtainURL string) error {
 	client := &http.Client{Timeout: 10 * time.Second}
 	req, err := http.NewRequest("GET", obtainURL, nil)
 	if err != nil {

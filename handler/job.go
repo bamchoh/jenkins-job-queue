@@ -18,6 +18,8 @@ import (
 type JobHandler struct {
 	Db       *bolt.DB
 	RootName []byte
+	Ch       chan int
+	UpdateCh chan int
 }
 
 func (jh *JobHandler) MainPage() echo.HandlerFunc {
@@ -37,6 +39,8 @@ func (jh *JobHandler) Update() echo.HandlerFunc {
 		w := c.Response()
 		r := c.Request()
 		err := job.Update(jh.Db, jh.RootName, w, r)
+		close(jh.UpdateCh)
+		jh.UpdateCh = make(chan int, 1)
 		if err != nil {
 			return fmt.Errorf("DB Update Error: %s", err)
 		}
@@ -51,6 +55,7 @@ func (jh *JobHandler) WebSocket() echo.HandlerFunc {
 			for {
 				sMsg := fmt.Sprintln("==============================================")
 				sMsg += time.Now().Format("2006-02-03 15:04:05\n")
+
 				jh.Db.View(func(tx *bolt.Tx) error {
 					bucket := tx.Bucket(jh.RootName)
 					if bucket != nil {
@@ -79,7 +84,13 @@ func (jh *JobHandler) WebSocket() echo.HandlerFunc {
 					c.Logger().Error(err)
 					return
 				}
-				time.Sleep(1 * time.Second)
+				fmt.Println("Waiting...")
+				select {
+				case <-jh.Ch:
+					fmt.Println("Wake Up by executing")
+				case <-jh.UpdateCh:
+					fmt.Println("Wake Up by updating")
+				}
 			}
 		}).ServeHTTP(c.Response(), c.Request())
 		return nil

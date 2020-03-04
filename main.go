@@ -11,7 +11,6 @@ import (
 	bolt "go.etcd.io/bbolt"
 
 	"test_httpserver/handler"
-	"test_httpserver/job"
 )
 
 var db *bolt.DB
@@ -55,9 +54,11 @@ func main() {
 	jh := handler.JobHandler{
 		Db:       db,
 		RootName: rootName,
+		Ch:       make(chan int, 1),
+		UpdateCh: make(chan int, 1),
 	}
 
-	go job.Execute(db, rootName)
+	go jh.Execute()
 
 	e := echo.New()
 	e.Use(middleware.Logger())

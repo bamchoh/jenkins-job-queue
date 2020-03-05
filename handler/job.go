@@ -65,9 +65,20 @@ func (jh *JobHandler) WebSocket() echo.HandlerFunc {
 							idBucket := bucket.Bucket(k)
 							if idBucket != nil {
 								idBucket.ForEach(func(kk, vv []byte) error {
-									sMsg += fmt.Sprintf("  %s = %s\n",
-										string(kk),
-										string(vv))
+									if string(kk) == "parameter" {
+										sMsg += fmt.Sprintf("  %s = {\n", string(kk))
+										paramBucket := idBucket.Bucket(kk)
+										paramBucket.ForEach(func(kkk, vvv []byte) error {
+											sMsg += fmt.Sprintf("    %s = %s\n",
+												string(kkk), string(vvv))
+											return nil
+										})
+										sMsg += fmt.Sprintf("  }\n")
+									} else {
+										sMsg += fmt.Sprintf("  %s = %s\n",
+											string(kk),
+											string(vv))
+									}
 									return nil
 								})
 							}

@@ -8,32 +8,27 @@ import (
 	"strconv"
 	"time"
 
+	dproxy "github.com/koron/go-dproxy"
 	bolt "go.etcd.io/bbolt"
 )
 
-type Job struct {
-	Title      string `json:"title"`
-	BuildURL   string `json:"buildURL"`
-	ObserveURL string `json:"observeURL"`
-	User       string `json:"user"`
-}
-
-func decodeJSONFromRequest(r *http.Request, jsonData *Job) (err error) {
+func decodeJSONFromRequest(r *http.Request) (p dproxy.Proxy, err error) {
 	length, err := strconv.Atoi(r.Header.Get("Content-Length"))
 	if err != nil {
-		return fmt.Errorf("Get Content Length Error: %s", err)
+		return nil, fmt.Errorf("Get Content Length Error: %s", err)
 	}
 
 	body := make([]byte, length)
 	length, err = r.Body.Read(body)
 	if err != nil && err != io.EOF {
-		return fmt.Errorf("Request Read Body Error: %s", err)
+		return nil, fmt.Errorf("Request Read Body Error: %s", err)
 	}
 
-	if err := json.Unmarshal(body, &jsonData); err != nil {
-		return fmt.Errorf("Json Unmarshal Error: %s", err)
+	var v interface{}
+	if err := json.Unmarshal(body, &v); err != nil {
+		return nil, fmt.Errorf("Json Unmarshal Error: %s", err)
 	}
-	return nil
+	return dproxy.New(v), nil
 }
 
 func fetchIDBucket(bucket *bolt.Bucket, jobName string) (*bolt.Bucket, error) {
@@ -54,8 +49,7 @@ func genID(now time.Time, job string) []byte {
 }
 
 func Update(db *bolt.DB, rootName []byte, w http.ResponseWriter, r *http.Request) error {
-	var jsonData Job
-	err := decodeJSONFromRequest(r, &jsonData)
+	p, err := decodeJSONFromRequest(r)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return fmt.Errorf("Decode Json Error: %s", err)
@@ -67,19 +61,19 @@ func Update(db *bolt.DB, rootName []byte, w http.ResponseWriter, r *http.Request
 			return fmt.Errorf("create bucket: %s", err)
 		}
 
-		fmt.Println("jsonData:", jsonData)
-
-		idBucket, err := fetchIDBucket(bucket, jsonData.Title)
+		title, err := p.M("title").String()
+		fmt.Println("title:", title)
+		if err != nil {
+			return fmt.Errorf("Getting title: %s", err)
+		}
+		idBucket, err := fetchIDBucket(bucket, title)
 		if err != nil {
 			return fmt.Errorf("delete bucket error: %s", err)
 		}
 
-		fmt.Println("idBucket:", idBucket)
-
 		var id []byte
 		if idBucket == nil {
-			id = genID(time.Now(), jsonData.Title)
-			fmt.Printf("id:%s, title:%s\n", string(id), jsonData.Title)
+			id = genID(time.Now(), title)
 			idBucket, err = bucket.CreateBucketIfNotExists(id)
 			if err != nil {
 				return fmt.Errorf("create id(%d) bucket: %s", id, err)
@@ -90,21 +84,31 @@ func Update(db *bolt.DB, rootName []byte, w http.ResponseWriter, r *http.Request
 		if err != nil {
 			return fmt.Errorf("Put 'title' error: %s", err)
 		}
-		err = idBucket.Put([]byte("title"), []byte(jsonData.Title))
+
+		m, err := p.Map()
 		if err != nil {
-			return fmt.Errorf("Put 'title' error: %s", err)
+			return fmt.Errorf("Getting Map from proxy: %s", err)
 		}
-		err = idBucket.Put([]byte("buildURL"), []byte(jsonData.BuildURL))
-		if err != nil {
-			return fmt.Errorf("Put 'buildURL' error: %s", err)
-		}
-		err = idBucket.Put([]byte("observeURL"), []byte(jsonData.ObserveURL))
-		if err != nil {
-			return fmt.Errorf("Put 'observeURL' error: %s", err)
-		}
-		err = idBucket.Put([]byte("user"), []byte(jsonData.User))
-		if err != nil {
-			return fmt.Errorf("Put 'user' error: %s", err)
+		for k, v := range m {
+			switch v.(type) {
+			case string:
+				err = idBucket.Put([]byte(k), []byte(v.(string)))
+				if err != nil {
+					return fmt.Errorf("Put '%s' error: %s", k, err)
+				}
+			case map[string]interface{}:
+				paramBucket, err := idBucket.CreateBucketIfNotExists([]byte(k))
+				for kk, vv := range v.(map[string]interface{}) {
+					if _, ok := vv.(string); ok {
+						err = paramBucket.Put([]byte(kk), []byte(vv.(string)))
+						if err != nil {
+							return fmt.Errorf("Put '%s' error: %s", kk, err)
+						}
+					}
+				}
+			default:
+				fmt.Printf("%v's value is not string/map[string]interface{}: %T\n", k, v)
+			}
 		}
 		return nil
 	})

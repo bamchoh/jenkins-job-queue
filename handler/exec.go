@@ -1,10 +1,11 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 
 func (jh *JobHandler) Execute() {
 	for {
+		params := make(map[string]string, 0)
 		user := ""
 		buildURL := ""
 		observeURL := ""
@@ -23,13 +25,28 @@ func (jh *JobHandler) Execute() {
 				k, _ := cursor.First()
 				if len(k) > 0 {
 					idBucket := bucket.Bucket(k)
+					fmt.Println(idBucket)
+					idBucket.ForEach(func(k, v []byte) error {
+						switch string(k) {
+						case "user":
+							user = string(v)
+						case "buildURL":
+							buildURL = string(v)
+						case "observeURL":
+							observeURL = string(v)
+						case "parameter":
+							paramBucket := idBucket.Bucket(k)
+							paramBucket.ForEach(func(kk, vv []byte) error {
+								params[string(kk)] = string(vv)
+								return nil
+							})
+						}
+						return nil
+					})
 					err := bucket.DeleteBucket(k)
 					if err != nil {
 						return err
 					}
-					buildURL = string(idBucket.Get([]byte("buildURL")))
-					observeURL = string(idBucket.Get([]byte("observeURL")))
-					user = string(idBucket.Get([]byte("user")))
 				}
 			}
 			return nil
@@ -48,24 +65,90 @@ func (jh *JobHandler) Execute() {
 		fmt.Println("Execute")
 		select {
 		case jh.Ch <- 1:
-			fmt.Println("jh.Ch")
 		default:
-			fmt.Println("default")
 		}
 
-		cmd := exec.Command("curl", "--user", user, buildURL)
-		fmt.Println(cmd)
-		err = cmd.Run()
+		err = TriggerJob(user, buildURL, params)
 		if err != nil {
-			fmt.Println("command execution error: ", err)
+			fmt.Println("trigger job error: ", err)
+			<-jh.UpdateCh
+			continue
 		}
-		fmt.Println("end - cmd")
 
 		err = WaitJobComplete(user, observeURL)
 		if err != nil {
 			fmt.Println("wait job complete error: ", err)
 		}
 	}
+}
+
+func splitToken(token string) (user, pass string) {
+	authText := strings.SplitN(token, ":", 2)
+	user = authText[0]
+	pass = authText[1]
+	return
+}
+
+func generateJsonString(kv map[string]string) (io.Reader, error) {
+	if len(kv) == 0 {
+		return nil, nil
+	}
+
+	jsonMap := make(map[string][]JobParams, 0)
+	jsonParams := make([]JobParams, 0)
+	for k, v := range kv {
+		jsonParams = append(jsonParams, JobParams{Name: k, Value: v})
+	}
+	jsonMap["parameter"] = jsonParams
+	text, err := json.Marshal(jsonMap)
+	jsonStr := []byte("json=")
+	jsonStr = append(jsonStr, text...)
+
+	return bytes.NewBuffer(jsonStr), err
+}
+
+type JobParams struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+func TriggerJob(token, url string, kv map[string]string) error {
+	jsonReader, err := generateJsonString(kv)
+	if err != nil {
+		return fmt.Errorf("map cannot be marshaled: %s", err)
+	}
+	var req *http.Request
+	if jsonReader == nil {
+		req, err = http.NewRequest("GET", url, nil)
+	} else {
+		req, err = http.NewRequest("POST", url, jsonReader)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+	if err != nil {
+		return fmt.Errorf("request generation url error: %s", err)
+	}
+	user, pass := splitToken(token)
+	req.SetBasicAuth(user, pass)
+
+	fmt.Println("== request ==")
+	fmt.Println("Method:", req.Method)
+	fmt.Println("URL:", req.URL)
+	fmt.Println("Header:", req.Header)
+	fmt.Println("Body:", req.Body)
+	fmt.Println("=============")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("request sending error: %s", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("response status is not OK: %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 type BuildNumber struct {
@@ -84,9 +167,7 @@ func WaitJobComplete(token, obtainURL string) error {
 	if err != nil {
 		return fmt.Errorf("request generation error: %s", err)
 	}
-	authText := strings.SplitN(token, ":", 2)
-	user := authText[0]
-	pass := authText[1]
+	user, pass := splitToken(token)
 	req.SetBasicAuth(user, pass)
 
 	for {

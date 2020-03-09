@@ -1,4 +1,4 @@
-module test_httpserver
+module github.com/bamchoh/jenkins-job-queue
 
 go 1.13
 

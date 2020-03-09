@@ -12,7 +12,7 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"github.com/bamchoh/handler"
+	"github.com/bamchoh/jenkins-job-queue/handler"
 
 	"github.com/marcsauter/single"
 )

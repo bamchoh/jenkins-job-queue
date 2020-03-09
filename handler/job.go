@@ -12,7 +12,7 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"test_httpserver/job"
+	"github.com/bamchoh/jenkins-job-queue/job"
 )
 
 type JobHandler struct {

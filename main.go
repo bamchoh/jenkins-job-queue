@@ -12,7 +12,7 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"test_httpserver/handler"
+	"github.com/bamchoh/handler"
 
 	"github.com/marcsauter/single"
 )
